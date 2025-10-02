@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+    <title>Alerts</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h2>Alerts</h2>
+    <table>
+        <tr>
+            <th>Timestamp</th>
+            <th>IP Address</th>
+            <th>Message</th>
+        </tr>
+        {% for alert in alerts %}
+        <tr>
+            <td>{{ alert.timestamp }}</td>
+            <td>{{ alert.ip }}</td>
+            <td>{{ alert.message }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
