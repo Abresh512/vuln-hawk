@@ -1,8 +1,22 @@
+from scapy.all import sniff, wrpcap, IP, TCP, UDP, ICMP, conf
+from datetime import datetime
+from collections import deque, defaultdict
+import csv
+import time
+
+syn_packets = defaultdict(lambda: deque())
+
+threshhold = 10
+windows_size = 10
+
+log_file = "alert.log"
 from flask import Flask, render_template
 
 app = Flask(__name__)
 
 @app.route("/")
+
+
 
 def detect_syn(packet):
     if packet.haslayer(TCP):
@@ -10,6 +24,8 @@ def detect_syn(packet):
         ip_layer = packet[IP]
 
         if tcp_layer.flags & 0x02:
+            print(f"[syn detected] {ip_layer.src}---> {ip_layer.dst}")
+            #ip = packet[IP].src
             ip = ip_layer.src
             now = time.time()
             syn_packets[ip].append(now)
@@ -18,13 +34,10 @@ def detect_syn(packet):
                 syn_packets[ip].popleft()
 
             if len(syn_packets[ip]) > threshhold:
-                alert = f"[ALERT] Possible SYN flood from {src_ip} at {time.ctime(now)}"
-                log_alert(alert)
-                ip_addrs = (f"{ip_layer.src}---> {ip_layer.dst}")
+                alert = f"[ALERT] Possible SYN flood from {ip} at {time.ctime(now)}"
+    
 
-
-
-def show_alerts(packet):
+def show_alerts():
     alerts = []
     try:
         with open("alerts.log", "r") as f:
@@ -35,14 +48,15 @@ def show_alerts(packet):
                     parts = line.split(",", 2)
                     if len(parts) == 3:
                         alerts.append({
-                            "timestamp": now,
-                            "ip": ip_addrs,
-                            "message": alert
+                            "timestamp": part[0],
+                            "ip": part[1],
+                            "message": part[2]
                         })
     except FileNotFoundError:
         alerts.append({"timestamp":"-", "ip":"-", "message":"No alerts logged yet."})
 
     return render_template("alerts.html", alerts=alerts)
 
+sniff(filter="ip", prn=detect_syn, store=0)
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0")

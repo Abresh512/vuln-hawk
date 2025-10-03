@@ -105,7 +105,7 @@ def detect_syn(packet):
                 syn_packets[ip].popleft()
 
             if len(syn_packets[ip]) > threshhold:
-                alert = f"[ALERT] Possible SYN flood from {src_ip} at {time.ctime(now)}"
+                alert = f"[ALERT] Possible SYN flood from {ip} at {time.ctime(now)}"
                 print(alert)
                 log_alert(alert)
             print(f"{ip} -> SYN count in last {windows_size}s: {len(syn_packets[ip])}")
