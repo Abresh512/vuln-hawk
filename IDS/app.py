@@ -3,7 +3,28 @@ from flask import Flask, render_template
 app = Flask(__name__)
 
 @app.route("/")
-def show_alerts():
+
+def detect_syn(packet):
+    if packet.haslayer(TCP):
+        tcp_layer = packet[TCP]
+        ip_layer = packet[IP]
+
+        if tcp_layer.flags & 0x02:
+            ip = ip_layer.src
+            now = time.time()
+            syn_packets[ip].append(now)
+
+            while syn_packets[ip] and now - syn_packets[ip][0] > windows_size:
+                syn_packets[ip].popleft()
+
+            if len(syn_packets[ip]) > threshhold:
+                alert = f"[ALERT] Possible SYN flood from {src_ip} at {time.ctime(now)}"
+                log_alert(alert)
+                ip_addrs = (f"{ip_layer.src}---> {ip_layer.dst}")
+
+
+
+def show_alerts(packet):
     alerts = []
     try:
         with open("alerts.log", "r") as f:
@@ -14,9 +35,9 @@ def show_alerts():
                     parts = line.split(",", 2)
                     if len(parts) == 3:
                         alerts.append({
-                            "timestamp": parts[0],
-                            "ip": parts[1],
-                            "message": parts[2]
+                            "timestamp": now,
+                            "ip": ip_addrs,
+                            "message": alert
                         })
     except FileNotFoundError:
         alerts.append({"timestamp":"-", "ip":"-", "message":"No alerts logged yet."})
