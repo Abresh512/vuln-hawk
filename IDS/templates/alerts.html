@@ -1,4 +1,4 @@
-<!doctype html>
+<!-- <!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
@@ -104,4 +104,45 @@
     setInterval(()=>{ fetchAlerts(); fetchActive(); }, 3000);
   </script>
 </body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>IDS Dashboard</title>
+    <style>
+        body { background-color: #121212; color: #eee; font-family: Arial, sans-serif; margin: 20px; }
+        h1, h2 { color: #00ffff; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+        th, td { border: 1px solid #444; padding: 8px; text-align: left; }
+        tr:nth-child(even) { background-color: #1e1e1e; }
+    </style>
+</head>
+<body>
+    <h1>🧠 Intrusion Detection System — Dashboard</h1>
+
+    <h2>🚨 Alerts</h2>
+    <table>
+        <tr><th>Timestamp</th><th>Source IP</th><th>Message</th></tr>
+        {% for alert in alerts %}
+        <tr>
+            <td>{{ alert.timestamp }}</td>
+            <td>{{ alert.ip }}</td>
+            <td>{{ alert.message }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>🌐 Active IPs</h2>
+    <ul>
+        {% for ip in active_ips %}
+        <li>{{ ip }}</li>
+        {% else %}
+        <li>No active IPs currently detected.</li>
+        {% endfor %}
+    </ul>
+</body>
 </html>
+ 
