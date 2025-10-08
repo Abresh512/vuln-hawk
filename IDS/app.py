@@ -1,4 +1,3 @@
-# app.py
 from collections import defaultdict, deque, Counter
 from scapy.all import sniff, TCP, IP
 from flask import Flask, render_template, jsonify
@@ -7,15 +6,17 @@ import time
 import os
 import datetime
 
+
+
 app = Flask(__name__)
 
 # ---------- Config ----------
-WINDOW_SECONDS = 10         # window for SYN detection
-THRESHOLD = 10              # SYN threshold to trigger alert
-ALERT_SUPPRESS_SECONDS = 30 # suppress repeated alert for same IP for this many seconds
-ACTIVE_WINDOW = 30          # seconds: an IP is "active" if seen within this many seconds
-ALERT_LOG = "alerts.log"
-SYN_KEYWORDS = ("syn", "syn flood", "syn scan", "tcp:flags=syn", "syn-ack")
+windows_sec = 10         # window for SYN detection
+threshhold = 10              # SYN threshhold to trigger alert
+alert_suppress_secs = 30 # suppress repeated alert for same IP for this many seconds
+active_window = 30          # seconds: an IP is "active" if seen within this many seconds
+alert_log = "alerts.log"
+syn_keywords = ("syn", "syn flood", "syn scan", "tcp:flags=syn", "syn-ack")
 # ----------------------------
 
 # Data structures (shared between sniff thread and Flask)
@@ -27,16 +28,17 @@ packet_counts = Counter()                   # packet_counts[ip] = total packets 
 _lock = threading.Lock()                    # protect shared structures
 
 def log_alert_line(ts_iso, ip, message):
-    """Append a single-line CSV alert: timestamp,ip,message"""
     line = f"{ts_iso},{ip},{message}\n"
-    with open(ALERT_LOG, "a") as f:
+
+    # Append a single-line CSV alert: timestamp,ip,message
+    with open(alert_log, "a") as f:
         f.write(line)
 
 def detect_packet(packet):
     """
     Called for each captured packet (sniff callback).
     - updates last_seen and packet_counts for source and dest IPs
-    - detects SYNs and writes alerts if thresholds exceeded
+    - detects SYNs and writes alerts if threshholds exceeded
     """
     try:
         if not packet.haslayer(IP):
@@ -63,15 +65,15 @@ def detect_packet(packet):
                     dq = syn_packets[src]
                     dq.append(now)
                     # pop old timestamps outside sliding window
-                    while dq and (now - dq[0]) > WINDOW_SECONDS:
+                    while dq and (now - dq[0]) > windows_sec:
                         dq.popleft()
 
-                    # if count above threshold and not recently alerted, log it
-                    if len(dq) > THRESHOLD:
+                    # if count above threshhold and not recently alerted, log it
+                    if len(dq) > threshhold:
                         last = last_alert_time.get(src, 0)
-                        if now - last > ALERT_SUPPRESS_SECONDS:
+                        if now - last > alert_suppress_secs:
                             ts_iso = datetime.datetime.utcfromtimestamp(now).replace(microsecond=0).isoformat()
-                            msg = f"SYN flood suspected to {dst} ({len(dq)} SYNs in {WINDOW_SECONDS}s)"
+                            msg = f"SYN flood suspected to {dst} ({len(dq)} SYNs in {windows_sec}s)"
                             log_alert_line(ts_iso, src, msg)
                             last_alert_time[src] = now
                             print(f"[ALERT] {src} -> {dst}: {msg}")
@@ -94,7 +96,7 @@ def start_sniff_thread(iface=None):
 
 # ---------- Helpers for Flask to read data ----------
 
-def parse_alerts_file(path=ALERT_LOG):
+def parse_alerts_file(path=alert_log):
     """
     return (alerts_list, syn_counter)
     alerts_list: list of dicts {timestamp, ip, message, is_syn}
@@ -115,7 +117,7 @@ def parse_alerts_file(path=ALERT_LOG):
                 continue
             timestamp, ip, message = parts[0].strip(), parts[1].strip(), parts[2].strip()
             lower_msg = message.lower()
-            is_syn = any(k in lower_msg for k in SYN_KEYWORDS)
+            is_syn = any(k in lower_msg for k in syn_keywords)
             alerts.append({
                 "timestamp": timestamp,
                 "ip": ip,
@@ -128,7 +130,7 @@ def parse_alerts_file(path=ALERT_LOG):
     alerts.reverse()
     return alerts, syn_counter
 
-def get_active_ips(window=ACTIVE_WINDOW, top_n=50):
+def get_active_ips(window=active_window, top_n=50):
     """
     Return list of tuples (ip, last_seen_iso, age_seconds, packet_count),
     sorted by most recent last_seen, limited to top_n.
