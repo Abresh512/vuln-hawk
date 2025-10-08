@@ -1,2 +1,4 @@
-2025-10-06 16:51:50,192.168.1.7,Possible SYN flood detected — rate: 0.30/s (baseline: 0.05/s)
-2025-10-06 16:51:50,192.168.1.7,Possible SYN flood detected — rate: 0.30/s (baseline: 0.05/s)
+2025-10-08T22:15:56,39.139.124.107,SSH login failed
+2025-10-08T22:15:57,219.132.136.43,SYN scan detected
+2025-10-08T22:15:58,60.116.94.81,ICMP ping sweep
+2025-10-08T22:15:59,207.37.4.22,ICMP ping sweep
