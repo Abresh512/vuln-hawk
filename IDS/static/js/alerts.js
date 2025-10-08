@@ -1,34 +1,47 @@
-    async function fetchAlerts(){
-      try{
-        const res = await fetch("/alerts.json",{cache:"no-store"});
-        if(!res.ok) return;
-        const alerts = await res.json();
-        const tbody = document.querySelector("#alerts-table tbody");
-        tbody.innerHTML = "";
-        for(const a of alerts){
-          const tr = document.createElement("tr");
-          if(a.is_syn) tr.classList.add("syn");
-          tr.innerHTML = `<td>${a.timestamp||"-"}</td><td>${a.ip||"-"}</td><td>${a.message||"-"}</td><td>${a.is_syn?'<span class="tag syn">SYN</span>':'—'}</td>`;
-          tbody.appendChild(tr);
-        }
-      }catch(e){ console.error(e); }
-    }
+async function fetchAlerts() {
+  try {
+    const res = await fetch("/alerts.json", { cache: "no-store" });
+    if (!res.ok) return;
+    const alerts = await res.json();
+    const tbody = document.querySelector("#alerts-table tbody");
+    if (!tbody) return;
 
-    async function fetchActive(){
-      try{
-        const res = await fetch("/active.json",{cache:"no-store"});
-        if(!res.ok) return;
-        const active = await res.json();
-        const tbody = document.querySelector("#active-table tbody");
-        tbody.innerHTML = "";
-        for(const a of active){
-          const tr = document.createElement("tr");
-          tr.innerHTML = `<td>${a.ip}</td><td>${a.last_seen}</td><td>${a.age_s}</td><td>${a.count}</td>`;
-          tbody.appendChild(tr);
-        }
-      }catch(e){ console.error(e); }
-    }
+    tbody.innerHTML = ""; // clear
+    for (const a of alerts) {
+      const tr = document.createElement("tr");
+      if (a.is_syn) tr.classList.add("syn");
 
-    // poll both endpoints every 3 seconds
-    fetchAlerts(); fetchActive();
-    setInterval(()=>{ fetchAlerts(); fetchActive(); }, 3000);
+      const tdTime = document.createElement("td");
+      tdTime.textContent = a.timestamp || "-";
+      const tdIp = document.createElement("td");
+      tdIp.textContent = a.ip || "-";
+      const tdMsg = document.createElement("td");
+      tdMsg.textContent = a.message || "-";
+      const tdStatus = document.createElement("td");
+      if (a.is_syn) {
+        const span = document.createElement("span");
+        span.className = "tag syn";
+        span.textContent = "SYN";
+        tdStatus.appendChild(span);
+      } else {
+        const span = document.createElement("span");
+        span.className = "small";
+        span.textContent = "—";
+        tdStatus.appendChild(span);
+      }
+
+      tr.appendChild(tdTime);
+      tr.appendChild(tdIp);
+      tr.appendChild(tdMsg);
+      tr.appendChild(tdStatus);
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    // silent fail; you could add retry/backoff logic
+    console.error("Failed to fetch alerts:", e);
+  }
+}
+
+// initial fetch and polling
+fetchAlerts();
+setInterval(fetchAlerts, 3000);
