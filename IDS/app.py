@@ -1,155 +1,154 @@
-from collections import defaultdict, deque, Counter
-from scapy.all import sniff, TCP, IP
-from flask import Flask, render_template, jsonify
-import threading
-import time
 import os
+import time
 import datetime
+import threading
+from collections import defaultdict, deque, Counter
 
-
+import pyshark
+from flask import Flask, render_template, jsonify
 
 app = Flask(__name__)
 
-# ---------- Config ----------
-windows_sec = 10         # window for SYN detection
-threshhold = 10              # SYN threshhold to trigger alert
-alert_suppress_secs = 30 # suppress repeated alert for same IP for this many seconds
-active_window = 30          # seconds: an IP is "active" if seen within this many seconds
-alert_log = "alerts.log"
-syn_keywords = ("syn", "syn flood", "syn scan", "tcp:flags=syn", "syn-ack")
-# ----------------------------
+WINDOW_SEC = 10                 
+SYN_THRESHOLD = 60              
+THRESHOLD_MULTIPLIER = 5       
+ALERT_SUPPRESS_SECS = 30       
+ACTIVE_SECONDS = 30            
 
-# Data structures (shared between sniff thread and Flask)
-syn_packets = defaultdict(lambda: deque())  # syn_packets[src_ip] -> deque of timestamps
-last_alert_time = {}                        # last_alert_time[src_ip] = unix_time
-last_seen = {}                              # last_seen[ip] = unix_time
-packet_counts = Counter()                   # packet_counts[ip] = total packets seen
+ALERTS_LOG = "alerts.log"      
 
-_lock = threading.Lock()                    # protect shared structures
+
+EFFECTIVE_THRESHOLD = SYN_THRESHOLD * THRESHOLD_MULTIPLIER
+
+
+_lock = threading.Lock()
+syn_packets = defaultdict(lambda: deque())  
+last_alert_time = {}                        
+last_seen = {}                              
+packet_counts = Counter()                   
+
+
+def utc_iso_now():
+    return datetime.datetime.utcnow().replace(microsecond=0).isoformat()
 
 def log_alert_line(ts_iso, ip, message):
-    line = f"{ts_iso},{ip},{message}\n"
-
-    # Append a single-line CSV alert: timestamp,ip,message
-    with open(alert_log, "a") as f:
-        f.write(line)
-
-def detect_packet(packet):
-    """
-    Called for each captured packet (sniff callback).
-    - updates last_seen and packet_counts for source and dest IPs
-    - detects SYNs and writes alerts if threshholds exceeded
-    """
+    line = f"{ts_iso}, {ip}, {message}\n"
     try:
-        if not packet.haslayer(IP):
-            return
 
-        now = time.time()
-        ip_layer = packet[IP]
-        src = ip_layer.src
-        dst = ip_layer.dst
+        #Append an alert line to ALERTS_LOG (CSV style).
+        with open(ALERTS_LOG, "a") as f:
+            f.write(line)
+    except Exception as e:
+        print("[ERROR] writing alert log:", e)
 
-        # update last seen & counts for both source and dest
-        with _lock:
-            last_seen[src] = now
-            last_seen[dst] = now
-            packet_counts[src] += 1
-            packet_counts[dst] += 1
+# ----------  capture & detect ----------
+def capture_packets(interface=None):
+  
+    display_filter = "tcp.flags.syn == 1 && tcp.flags.ack == 0"
+    iface = interface or os.environ.get("IFACE", None)
+    print(f"[+] Starting pyshark LiveCapture on iface: {iface or 'default'} (filter: {display_filter})")
+    try:
+        capture = pyshark.LiveCapture(interface=iface, display_filter=display_filter, use_json=True)
+        # sniff_continuously yields parsed packets as they arrive
+        for pkt in capture.sniff_continuously():
+            try:
+                # Some packets may not have IP layer depending on capture; guard access
+                if not hasattr(pkt, "ip"):
+                    continue
+                src = pkt.ip.src
+                dst = pkt.ip.dst
+                now = time.time()
 
-        # SYN detection (only for TCP)
-        if packet.haslayer(TCP):
-            tcp_layer = packet[TCP]
-            # check SYN flag (0x02)
-            if tcp_layer.flags & 0x02:
+                # update last seen and counts for both src and dst
                 with _lock:
+                    last_seen[src] = now
+                    last_seen[dst] = now
+                    packet_counts[src] += 1
+                    packet_counts[dst] += 1
+
+                    # record SYN timestamp for src
                     dq = syn_packets[src]
                     dq.append(now)
-                    # pop old timestamps outside sliding window
-                    while dq and (now - dq[0]) > windows_sec:
+                    # drop old timestamps outside sliding window
+                    while dq and (now - dq[0]) > WINDOW_SEC:
                         dq.popleft()
 
-                    # if count above threshhold and not recently alerted, log it
-                    if len(dq) > threshhold:
+                    syn_count = len(dq)
+                    if syn_count > EFFECTIVE_THRESHOLD:
                         last = last_alert_time.get(src, 0)
-                        if now - last > alert_suppress_secs:
-                            ts_iso = datetime.datetime.utcfromtimestamp(now).replace(microsecond=0).isoformat()
-                            msg = f"SYN flood suspected to {dst} ({len(dq)} SYNs in {windows_sec}s)"
+                        if (now - last) > ALERT_SUPPRESS_SECS:
+                            ts_iso = utc_iso_now()
+                            msg = f"SYN flood suspected to {dst} ({syn_count} SYNs in {WINDOW_SEC}s)"
                             log_alert_line(ts_iso, src, msg)
                             last_alert_time[src] = now
                             print(f"[ALERT] {src} -> {dst}: {msg}")
+
+            except Exception as inner_e:
+                print("[ERROR] packet processing:", inner_e)
     except Exception as e:
-        print("detect_packet error:", e)
+        print("[ERROR] capture_packets:", e)
+        print("Make sure tshark is installed and you have permission to capture on the interface.")
+        raise
 
+def start_capture_thread(iface=None):
 
-def start_sniff_thread(iface=None):
-    """
-    Start scapy sniff in a daemon thread so Flask can also run.
-    Uses BPF "ip" to capture IPv4 packets (includes TCP/UDP/ICMP).
-    """
-    def _sniff():
-        sniff(filter="ip", prn=detect_packet, store=False, iface=iface)
-
-    t = threading.Thread(target=_sniff, daemon=True)
+    t = threading.Thread(target=capture_packets, kwargs={"interface": iface}, daemon=True)
     t.start()
     return t
 
 
-# ---------- Helpers for Flask to read data ----------
+def parse_alerts_file(path=ALERTS_LOG):
 
-def parse_alerts_file(path=alert_log):
-    """
-    return (alerts_list, syn_counter)
-    alerts_list: list of dicts {timestamp, ip, message, is_syn}
-    syn_counter: Counter of syn alerts per IP (counts messages containing SYN keywords)
-    """
     alerts = []
     syn_counter = Counter()
     if not os.path.exists(path):
         return alerts, syn_counter
 
-    with open(path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split(",", 2)
-            if len(parts) != 3:
-                continue
-            timestamp, ip, message = parts[0].strip(), parts[1].strip(), parts[2].strip()
-            lower_msg = message.lower()
-            is_syn = any(k in lower_msg for k in syn_keywords)
-            alerts.append({
-                "timestamp": timestamp,
-                "ip": ip,
-                "message": message,
-                "is_syn": is_syn
-            })
-            if is_syn:
-                syn_counter[ip] += 1
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(",", 2)
+                if len(parts) != 3:
+                    continue
+                timestamp = parts[0].strip()
+                ip = parts[1].strip()
+                message = parts[2].strip()
+                lower_msg = message.lower()
+                # basic heuristic to mark SYN-related alerts
+                is_syn = "syn" in lower_msg or "syn flood" in lower_msg or "tcp:flags=syn" in lower_msg
+                alerts.append({
+                    "timestamp": timestamp,
+                    "ip": ip,
+                    "message": message,
+                    "is_syn": is_syn
+                })
+                if is_syn:
+                    syn_counter[ip] += 1
+    except Exception as e:
+        print("[ERROR] parse_alerts_file:", e)
 
-    alerts.reverse()
+    alerts.reverse()  # most recent first
     return alerts, syn_counter
 
-def get_active_ips(window=active_window, top_n=50):
-    """
-    Return list of tuples (ip, last_seen_iso, age_seconds, packet_count),
-    sorted by most recent last_seen, limited to top_n.
-    """
+
+def get_active_ips(window=ACTIVE_SECONDS, top_n=50):
+   
     now = time.time()
+    items = []
     with _lock:
-        items = []
         for ip, ts in last_seen.items():
             age = now - ts
             if age <= window:
                 iso = datetime.datetime.utcfromtimestamp(ts).replace(microsecond=0).isoformat()
                 cnt = packet_counts.get(ip, 0)
                 items.append((ip, iso, int(age), cnt))
-    # sort by most recent (smallest age)
+    # sort by most recent (ascending)
     items.sort(key=lambda x: x[2])
     return items[:top_n]
 
-
-# ---------- Flask routes ----------
 @app.route("/")
 def show_alerts():
     alerts, syn_counter = parse_alerts_file()
@@ -165,13 +164,12 @@ def alerts_json():
 @app.route("/active.json")
 def active_json():
     active = get_active_ips()
-    # convert to dicts for JSON
-    out = [{"ip":ip,"last_seen":last_seen_iso,"age_s":age,"count":count} for ip,last_seen_iso,age,count in active]
+    out = [{"ip": ip, "last_seen": last_seen_iso, "age_s": age, "count": count}
+           for ip, last_seen_iso, age, count in active]
     return jsonify(out)
-
 
 if __name__ == "__main__":
     iface = os.environ.get("IFACE", None)
-    print("Starting sniff thread on iface:", iface or "default (scapy chooses)")
-    start_sniff_thread(iface=iface)
+    print("Starting capture thread on iface:", iface or "default (pyshark chooses)")
+    start_capture_thread(iface=iface)
     app.run(debug=True, host="0.0.0.0", port=5000)

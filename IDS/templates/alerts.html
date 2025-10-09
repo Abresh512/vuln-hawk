@@ -3,19 +3,9 @@
 <head>
   <meta charset="utf-8"/>
   <title>IDS Alerts & Active IPs</title>
-  <style>
-    body { font-family: Arial, Helvetica, sans-serif; padding: 20px; background:#f7f7f8; color:#111; }
-    .row { display:flex; gap:24px; align-items:flex-start; }
-    .card { background:white; padding:12px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.06); }
-    table { width:100%; border-collapse: collapse; }
-    th, td { padding:8px; border-bottom:1px solid #eee; text-align:left; font-size:14px; }
-    tr.syn { background:#ffeeee; }
-    .tag { padding:4px 8px; border-radius:6px; font-weight:600; }
-    .tag.syn { background:#fee2e2; color:#b91c1c; }
-    h2 { margin:8px 0; }
-    ul { margin:6px 0 12px 18px; }
-    .small { font-size:13px; color:#666; }
-  </style>
+
+  <link rel="stylesheet" href="../static/style.css">
+
 </head>
 <body>
   <h1>IDS Alerts & Active IPs</h1>
@@ -64,44 +54,12 @@
           {% endfor %}
         </tbody>
       </table>
+      <!-- New message placeholder -->
+      <div id="no-alerts-msg" class="no-alerts" style="display:none;">No alerts detected</div>
     </div>
   </div>
 
-  <script>
-    async function fetchAlerts(){
-      try{
-        const res = await fetch("/alerts.json",{cache:"no-store"});
-        if(!res.ok) return;
-        const alerts = await res.json();
-        const tbody = document.querySelector("#alerts-table tbody");
-        tbody.innerHTML = "";
-        for(const a of alerts){
-          const tr = document.createElement("tr");
-          if(a.is_syn) tr.classList.add("syn");
-          tr.innerHTML = `<td>${a.timestamp||"-"}</td><td>${a.ip||"-"}</td><td>${a.message||"-"}</td><td>${a.is_syn?'<span class="tag syn">SYN</span>':'—'}</td>`;
-          tbody.appendChild(tr);
-        }
-      }catch(e){ console.error(e); }
-    }
+  <script src="../static/js/"></script>
 
-    async function fetchActive(){
-      try{
-        const res = await fetch("/active.json",{cache:"no-store"});
-        if(!res.ok) return;
-        const active = await res.json();
-        const tbody = document.querySelector("#active-table tbody");
-        tbody.innerHTML = "";
-        for(const a of active){
-          const tr = document.createElement("tr");
-          tr.innerHTML = `<td>${a.ip}</td><td>${a.last_seen}</td><td>${a.age_s}</td><td>${a.count}</td>`;
-          tbody.appendChild(tr);
-        }
-      }catch(e){ console.error(e); }
-    }
-
-    // poll both endpoints every 3 seconds
-    fetchAlerts(); fetchActive();
-    setInterval(()=>{ fetchAlerts(); fetchActive(); }, 3000);
-  </script>
 </body>
 </html>
