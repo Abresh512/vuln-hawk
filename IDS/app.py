@@ -4,14 +4,15 @@ import datetime
 import threading
 from collections import defaultdict, deque, Counter
 
+
 import pyshark
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 
 app = Flask(__name__)
 
 WINDOW_SEC = 10                 
-SYN_THRESHOLD = 60              
-THRESHOLD_MULTIPLIER = 5       
+SYN_THRESHOLD = 5             
+THRESHOLD_MULTIPLIER = 1     
 ALERT_SUPPRESS_SECS = 30       
 ACTIVE_SECONDS = 30            
 
@@ -30,6 +31,32 @@ packet_counts = Counter()
 
 def utc_iso_now():
     return datetime.datetime.utcnow().replace(microsecond=0).isoformat()
+
+
+def get_client_ip():
+    headers_to_check = [
+        "CF-Connecting-IP",
+        "X-Real-IP",
+        "X-Forwarded-For",
+        "X-Client-IP",
+        "X-Forwarded",
+        "Forwarded-For",
+        "Forwarded"
+    ]
+
+    for header in headers_to_check:
+        if header in request.headers:
+            # X-Forwarded-For may contain multiple IPs
+            ip = request.headers[header].split(",")[0].strip()
+            if ip and re.match(r"\d+\.\d+\.\d+\.\d+", ip):
+                return ip
+
+    # Fallback to Flask's get_client_ip
+    if request.get_client_ip:
+        return request.get_client_ip
+
+    # If Brave hides IP completely, fallback to loopback
+    return "127.0.0.1"
 
 def log_alert_line(ts_iso, ip, message):
     line = f"{ts_iso}, {ip}, {message}\n"
@@ -57,6 +84,8 @@ def capture_packets(interface=None):
                     continue
                 src = pkt.ip.src
                 dst = pkt.ip.dst
+                sport = pkt.tcp.srcport if hasattr(pkt, "tcp") else "?"
+                dport = pkt.tcp.dstport if hasattr(pkt, "tcp") else "?"
                 now = time.time()
 
                 # update last seen and counts for both src and dst
@@ -78,7 +107,7 @@ def capture_packets(interface=None):
                         last = last_alert_time.get(src, 0)
                         if (now - last) > ALERT_SUPPRESS_SECS:
                             ts_iso = utc_iso_now()
-                            msg = f"SYN flood suspected to {dst} ({syn_count} SYNs in {WINDOW_SEC}s)"
+                            msg = f"SYN flood suspected from port {sport} to {dst} ({syn_count} SYNs in {WINDOW_SEC}s)"
                             log_alert_line(ts_iso, src, msg)
                             last_alert_time[src] = now
                             print(f"[ALERT] {src} -> {dst}: {msg}")

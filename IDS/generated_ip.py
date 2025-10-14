@@ -17,7 +17,7 @@ messages = [
 
 if __name__ == "__main__":
     # change interval to suit (seconds)
-    interval_seconds = 1.0
+    interval_seconds = 50
 
     try:
         while True:
