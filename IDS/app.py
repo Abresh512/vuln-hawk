@@ -106,8 +106,10 @@ def capture_packets(interface=None):
                     if syn_count > EFFECTIVE_THRESHOLD:
                         last = last_alert_time.get(src, 0)
                         if (now - last) > ALERT_SUPPRESS_SECS:
+                            if src == '127.0.0.1':
+                                continue
                             ts_iso = utc_iso_now()
-                            msg = f"SYN flood suspected from port {sport} to {dst} ({syn_count} SYNs in {WINDOW_SEC}s)"
+                            msg = f"SYN flood suspected: {src}:{sport} → {dst}:{dport} ({syn_count} SYNs in {WINDOW_SEC}s)"
                             log_alert_line(ts_iso, src, msg)
                             last_alert_time[src] = now
                             print(f"[ALERT] {src} -> {dst}: {msg}")
@@ -181,6 +183,13 @@ def get_active_ips(window=ACTIVE_SECONDS, top_n=50):
 @app.route("/")
 def show_alerts():
     alerts, syn_counter = parse_alerts_file()
+
+    # Filter out unwanted IPs
+    EXCLUDE_IPS = {"127.0.0.1", "localhost", "0.0.0.0"}
+    alerts = [a for a in alerts if a["ip"] not in EXCLUDE_IPS]
+
+    
+    syn_counter = Counter(a["ip"] for a in alerts if a["is_syn"])
     top_offenders = syn_counter.most_common(10)
     active = get_active_ips()
     return render_template("alerts.html", alerts=alerts, top_offenders=top_offenders, active_ips=active)
