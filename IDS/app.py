@@ -109,7 +109,7 @@ def capture_packets(interface=None):
                             if src == '127.0.0.1':
                                 continue
                             ts_iso = utc_iso_now()
-                            msg = f"SYN flood suspected: {src}:{sport} → {dst}:{dport} ({syn_count} SYNs in {WINDOW_SEC}s)"
+                            msg = f"SYN flood suspected: src {src}: {sport} → dst {dst}: {dport} ({syn_count} SYNs in {WINDOW_SEC}s)"
                             log_alert_line(ts_iso, src, msg)
                             last_alert_time[src] = now
                             print(f"[ALERT] {src} -> {dst}: {msg}")
